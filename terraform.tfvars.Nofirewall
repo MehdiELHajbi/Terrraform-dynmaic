@@ -1,0 +1,230 @@
+location           = "East US"
+resource_group_name = "1-d8c38e2e-playground-sandbox"
+
+vnets = {
+   vnet-prod = {
+    name          = "vnet-prod"
+    address_space = ["10.1.0.0/16"]
+  }
+}
+
+subnets = {
+
+  sub-aks-prd = {
+    name           = "sub-aks-prd"
+    
+    address_prefix = "10.1.1.0/24"
+    nsg_name       = "nsg-aks-prd"
+    vnet_name      = "vnet-prod"
+  },
+  sub-appgtw-prd = {
+    name           = "sub-appgtw-prd"
+    
+    address_prefix = "10.1.2.0/24"
+    nsg_name       = "nsg-appgtw-prd"
+    vnet_name      = "vnet-prod"
+  },
+}
+
+
+nsgs = {
+ 
+  nsg-aks-prd = {
+    name  = "nsg-aks-prd" #this nsg is associated with sub-bastion => network.tfvars
+    rules = [
+     
+    
+    ]
+  }
+  nsg-appgtw-prd = {
+    name  = "nsg-appgtw-prd" #this nsg is associated with sub-bastion => network.tfvars
+    rules = [
+       {
+        name                       = "Allow-AGW-Inbound-Traffic"
+        priority                   = 100
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range    = "65200-65535"  # Ports requis pour Application Gateway V2 SKU
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+      },
+       {
+        name                       = "allow-http"
+        priority                   = 101
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "80"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+
+      },
+       {
+        name                       = "allow-https"
+        priority                   = 102
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "443"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+
+      }
+    ]
+  }
+}
+
+vms = {
+
+}
+
+
+public_ips = {
+
+  prd_appgtw_pip = {
+    name              = "prd_appgtw_pip"
+    allocation_method = "Static"
+    zones             = ["1", "2", "3"]
+  }
+}
+
+
+
+
+
+
+aksPublic = {
+  cluster_name        = "aks-prd"
+  location            = "East US 2"
+  dns_prefix          = "aks-prd-dns"
+  subnet_name           = "sub-aks-prd"
+}
+
+
+aks = {
+  cluster_name        = "aks-prd"
+  location            = "East US 2"
+  dns_prefix          = "aks-prd-dns"
+  kubernetes_version  = "1.28.10"
+  node_count          = 2
+  vm_size             = "Standard_DS2_v2"
+  subnet_name           = "sub-aks-prd"
+  dns_service_ip      = "10.0.0.10"
+  private_dns_zone_id = "dns-aks"
+  docker_bridge_cidr  = "172.17.0.1/16"
+  service_cidr        = "10.0.0.0/16"
+  tags = {
+    environment = "production"
+    project     = "t"
+  }
+}
+route = {
+  name                    = ""
+  address_prefix          = ""  # destionation internet
+  next_hop_in_ip_address  = ""   # il doit passer passer par le firewall (ip privé ) pour sortir a internet
+}
+/*
+route = {
+  name                    = "aksToFirwall"
+  address_prefix          = "0.0.0.0/0"  # destionation internet
+  next_hop_in_ip_address  = "hub_fw"   # il doit passer passer par le firewall (ip privé ) pour sortir a internet
+}
+*/
+
+peerings = {
+
+}
+
+
+dns_zones = {
+  dns-aks = {
+    name = "private.eastus2.azmk8s.io" # formats: 'private.eastus2.azmk8s.io,privatelink.eastus2.azmk8s.io,[a-zA-Z0-9-]{1,32}.private.eastus2.azmk8s.io,[a-zA-Z0-9-]{1,32}.privatelink.eastus2.azmk8s.io'. Please refer to https://aka.ms/aks/private-cluster for detail.",
+    vnet_links = [
+
+      {
+        name                 = "prod-vnet-link"
+        virtual_network_id   = "vnet-prod"
+        registration_enabled = true
+      }
+    ]
+  }
+}
+
+
+application_gateway = {
+    name       = "appgatwprd"
+    sku_name   = "Standard_v2"
+    sku_tier   = "Standard_v2"
+    capacity   = 2
+    subnet_name = "sub-appgtw-prd"
+
+     # C'est l'interface par laquelle l'Application Gateway reçoit le trafic entrant.
+    frontend_ip_configurations = {  
+      public = {
+        name                 = "public"
+        public_ip_address_name = "prd_appgtw_pip"
+      }
+    }
+    frontend_ports = {
+      "http" = 80
+      "https" = 443
+    }
+
+    # Un backend pool est un groupe de serveurs ou de services où l'Application Gateway redirige le trafic. 
+    # Ces serveurs peuvent être des machines virtuelles, des instances de service web ou d'autres services d'Azure.
+    backend_address_pools = {
+       "aks-ingress-pool" = []
+    }
+
+    # Ce composant définit comment l'Application Gateway interagit avec les ressources backend. 
+    # Cela inclut la configuration du port backend, du protocole (HTTP/HTTPS), et des cookies.
+    backend_http_settings = {
+      "appgw-backend-http-settings" = {
+        cookie_based_affinity = "Disabled"
+        port                  = 80
+        protocol              = "Http"
+        request_timeout       = 60
+        probe_name            = "aks-ingress-probe"
+      }
+    }
+
+    # probes: Une sonde de santé pour vérifier la disponibilité de l'Ingress Controller.
+    probes = {
+      "aks-ingress-probe" = {
+        interval            = 30
+        path                = "/"
+        protocol            = "Http"
+        timeout             = 30
+        unhealthy_threshold = 3
+        pick_host_name_from_backend_http_settings = true
+      }
+    }
+    # Le listener est responsable d'écouter les requêtes entrantes sur un port spécifique.
+    # Il détermine comment le trafic doit être traité (HTTP ou HTTPS) et quel certificat SSL utiliser pour sécuriser les connexions.
+    http_listeners = {
+      "appgw-http-listener" = {
+        frontend_ip_configuration_name = "public"
+        frontend_port_name             = "http"
+        protocol                       = "Http"
+      }
+    }
+    #Les règles de routage de requêtes définissent comment le trafic entrant est dirigé en fonction de certaines conditions 
+    # (par exemple, URL, en-têtes, méthode HTTP). Ces règles lient les listeners aux pools backend.
+    request_routing_rules = {
+      "appgw-routing-rule" = {
+        rule_type                  = "Basic"
+        http_listener_name         = "appgw-http-listener"
+        backend_address_pool_name  = "aks-ingress-pool"
+        backend_http_settings_name = "appgw-backend-http-settings"
+        priority                   = 100
+      }
+    }
+    tags = {
+      Environment = "Production"
+    }
+  }
+  

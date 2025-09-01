@@ -1,0 +1,73 @@
+
+/*
+resource "azurerm_resource_group" "this" {
+  name     = var.resource_group_name
+  location = var.location
+}
+*/
+
+module "nsg" {
+  source              = "./modules/nsg"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  nsgs                = var.nsgs
+  //firewallIpPrivates  = ""//module.firewall.private_ips
+}
+
+module "network" {
+  source              = "./modules/network"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  vnets               = var.vnets
+  subnets             = var.subnets
+  nsg_ids             = module.nsg.nsg_ids
+}
+
+
+
+module "vm" {
+  source              = "./modules/vm"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  vms                 = var.vms
+  subnet_ids          = module.network.subnet_ids
+}
+
+module "public_ip" {
+  source              = "./modules/PublicIP"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  public_ips          = var.public_ips
+}
+
+
+
+
+
+
+
+
+module "vnet_peering" {
+  source = "./modules/vnetPeering"
+  peerings = var.peerings
+  vnet_ids  = module.network.vnet_ids
+}
+
+module "aksPublic" {
+  source = "./modules/aksPublic"
+  
+  resource_group_name = var.resource_group_name
+  subnet_ids          = module.network.subnet_ids
+  aksPublic           = var.aksPublic
+
+}
+
+module "appGetWay" {
+  source = "./modules/appGetWay"
+
+  application_gateway = var.application_gateway
+  subnet_ids          = module.network.subnet_ids
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  public_ip_ids        = module.public_ip.public_ip_ids
+}

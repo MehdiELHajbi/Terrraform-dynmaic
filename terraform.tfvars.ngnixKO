@@ -1,0 +1,585 @@
+location           = "East US 2"
+resource_group_name = "1-589c63aa-playground-sandbox"
+
+vnets = {
+  vnet-hub = {
+    name          = "vnet-hub"
+    address_space = ["10.0.0.0/16"]
+  }
+   vnet-prod = {
+    name          = "vnet-prod"
+    address_space = ["10.1.0.0/16"]
+  }
+}
+
+subnets = {
+  sub-bastion = {
+    name           = "sub-bastion"
+    address_prefix = "10.0.1.0/24"
+    nsg_name       = "nsg-bastion"
+    vnet_name      = "vnet-hub"
+  },
+  AzureFirewallSubnet = {
+    name           = "AzureFirewallSubnet"   # This must be exactly 'AzureFirewallManagementSubnet'
+    address_prefix = "10.0.2.0/24"
+    nsg_name       = ""
+    vnet_name      = "vnet-hub"
+  },
+   AzureFirewallManagementSubnet = {
+    name           = "AzureFirewallManagementSubnet"   # This must be exactly 'AzureFirewallManagementSubnet'
+    address_prefix = "10.0.3.0/24"
+    nsg_name       = ""
+    vnet_name      = "vnet-hub"
+  },
+  sub-aks-prd = {
+    name           = "sub-aks-prd"
+    
+    address_prefix = "10.1.1.0/24"
+    nsg_name       = "nsg-aks-prd"
+    vnet_name      = "vnet-prod"
+  },
+  sub-appgtw-prd = {
+    name           = "sub-appgtw-prd"
+    
+    address_prefix = "10.1.2.0/24"
+    nsg_name       = "nsg-appgtw-prd"
+    vnet_name      = "vnet-prod"
+  },
+}
+
+
+nsgs = {
+  nsg-bastion = {
+    name  = "nsg-bastion" #this nsg is associated with sub-bastion => network.tfvars
+    rules = [
+      {
+        name                       = "Deny-all"
+        priority                   = 4096
+        direction                  = "Inbound"
+        access                     = "Deny"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "*"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+      },
+      {
+        name                       = "allow-ssh"
+        priority                   = 100
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "22"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+
+      },
+      {
+        name                       = "allow-http"
+        priority                   = 200
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "80"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+
+      },
+    ]
+  }
+  nsg-aks-prd = {
+    name  = "nsg-aks-prd" #this nsg is associated with sub-bastion => network.tfvars
+    rules = [
+      # Règle pour autoriser le trafic entrant depuis le pare-feu
+      {
+        name                       = "AllowInboundFromFirewall"
+        priority                   = 100
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "*"
+        source_port_range          = "*"
+        destination_port_range     = "*"
+        source_address_prefix      = "hub_fw"
+        use_firewall_ip_as_source  = true
+        destination_address_prefix = "*"
+
+      },
+      # Règle pour autoriser le trafic sortant vers le pare-feu
+      {
+        name                       = "AllowOutboundToFirewall"
+        priority                   = 101
+        direction                  = "Outbound"
+        access                     = "Allow"
+        protocol                   = "*"
+        source_port_range          = "*"
+        destination_port_range     = "*"
+        source_address_prefix      = "*"
+        destination_address_prefix = "hub_fw"
+        use_firewall_ip_as_destination = true
+      }
+     ,
+      {
+        name                       = "AllowHTTP"
+        priority                   = 102
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "80"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+      },
+      {
+        name                       = "AllowHTTPS"
+        priority                   = 103
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "443"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+      }
+    ]
+  }
+  nsg-appgtw-prd = {
+    name  = "nsg-appgtw-prd" #this nsg is associated with sub-bastion => network.tfvars
+    rules = [
+       {
+        name                       = "Allow-AGW-Inbound-Traffic"
+        priority                   = 100
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range    = "65200-65535"  # Ports requis pour Application Gateway V2 SKU
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+      },
+       {
+        name                       = "allow-http"
+        priority                   = 101
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "80"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+
+      },
+       {
+        name                       = "allow-https"
+        priority                   = 102
+        direction                  = "Inbound"
+        access                     = "Allow"
+        protocol                   = "Tcp"
+        source_port_range          = "*"
+        destination_port_range     = "443"
+        source_address_prefix      = "*"
+        destination_address_prefix = "*"
+
+      }
+    ]
+  }
+}
+
+vms = {
+  bastion-vm = {
+    vm_name                     = "bastion-vm"
+    vm_size                     = "Standard_DS1_v2"
+    admin_username              = "adminuser"
+    subnet_name                 = "sub-bastion"
+    ssh_public_key              = "/home/elhajbimehdi/.ssh/id_rsa.pub"
+    nic_ip_configuration_name   = "internal"
+    private_ip_address_allocation = "Dynamic"
+    os_disk_caching             = "ReadWrite"
+    os_disk_storage_account_type = "Standard_LRS"
+    image_publisher             = "canonical"
+    image_offer                 = "UbuntuServer"
+    image_sku                   = "18.04-LTS"
+    image_version               = "latest"
+  }
+}
+
+
+public_ips = {
+  hub_fw_pip = {
+    name              = "hub_fw_pip"
+    allocation_method = "Static"
+    zones             = ["1", "2", "3"]
+  },
+  hub_fw_mgmt_pip = {
+    name              = "hub_fw_mgmt_pip"
+    allocation_method = "Static"
+    zones             = ["1", "2", "3"]
+  },
+  prd_appgtw_pip = {
+    name              = "prd_appgtw_pip"
+    allocation_method = "Static"
+    zones             = ["1", "2", "3"]
+  }
+}
+
+firewall_policies = {
+  hub_fw_policy = {
+    name              = "hub-fw-policy"
+    sku_tier          = "Basic"
+    firewall_policy_priority = 1000
+   application_rules = [
+    {
+  name     = "AKS_Required_FQDNs Https"
+  priority = 10000
+  action   = "Allow"
+  rule_group = [
+        {
+          name             = "Allow AKS FQDNs"
+          description      = "Allow required FQDNs for AKS"
+          source_addresses = ["10.1.1.0/24"]
+          destination_addresses = ["*"]
+          target_fqdns = [
+            "mcr.microsoft.com",
+            "*.data.mcr.microsoft.com",
+            "management.azure.com",
+            "login.microsoftonline.com",
+            "packages.microsoft.com",
+            "acs-mirror.azureedge.net"
+          ]
+          destination_ports = ["443"]
+          protocol = {
+            port = "443"
+            type = "Https"
+          }
+        }
+      ]
+    },
+    {
+      name     = "AKS_Required_FQDNs Http"
+      priority = 10001
+      action   = "Allow"
+      rule_group = [
+        {
+          name             = "Allow AKS FQDNs"
+          description      = "Allow required FQDNs for AKS"
+          source_addresses = ["10.1.1.0/24"]
+           destination_addresses = ["*"]
+          target_fqdns = [
+           
+            "mcr.microsoft.com",
+            "*.data.mcr.microsoft.com",
+            "management.azure.com",
+            "login.microsoftonline.com",
+            "packages.microsoft.com",
+            "acs-mirror.azureedge.net"
+          ]
+          destination_ports     = ["80"]
+          protocol = {
+              port = "80"
+              type = "Http"
+            }
+        }
+      ]
+    },
+        {
+        name       = "Allow-HTTPS-App"
+        priority   = 10002
+        action     = "Allow"
+        rule_group = [
+          {
+            name                  = "Https-Rule-App"
+            description           = "Allow SSH"
+            source_addresses      = ["*"]
+            destination_addresses = ["*"]
+            destination_ports     = ["22"]
+            target_fqdns          = ["*.google.com"]  # Add target FQDNs
+            protocol = {
+              type = "Https"
+              port = "443"
+            }
+          }
+        ]
+      },
+      {
+        name       = "Allow-HTTP-App"
+        priority   = 10003
+        action     = "Allow"
+        rule_group = [
+          {
+            name                  = "HTTP-Rule-App"
+            description           = "Allow HTTP"
+            source_addresses      = ["*"]
+            destination_addresses = ["*"]
+            destination_ports     = ["80"]
+            target_fqdns          = ["*.google.com"]  # Add target FQDNs
+            protocol = {
+              type = "Http"
+              port = "8080"
+            }
+          }
+        ]
+      }
+    ]
+    
+    network_rules = [
+       //-----------------------------------------------
+      {
+      name     = "AKS_Required_Ports"
+      priority = 999
+      action   = "Allow"
+      rule_group = [
+        {
+          name                  = "Allow AKS TCP"
+          description           = "Allow AKS TCP traffic"
+          protocols             = ["TCP"]
+          source_addresses      = ["10.1.1.0/24"]
+          destination_addresses = ["AzureCloud.*"]
+          destination_ports     = ["443", "9000"]
+        },
+        {
+          name                  = "Allow AKS UDP"
+          description           = "Allow AKS UDP traffic"
+          protocols             = ["UDP"]
+          source_addresses      = ["10.1.1.0/24"]
+          destination_addresses = ["AzureCloud.*"]
+          destination_ports     = ["1194", "123"]
+        }
+      ]
+    },
+    //-----------------------------------------------
+   
+      {
+        name       = "Allow-SSH-Net"
+        priority   = 1000
+        action     = "Allow"
+        rule_group = [
+          {
+            name                  = "SSH-Rule-Net"
+            description           = "Allow SSH"
+            source_addresses      = ["*"]
+            destination_addresses = ["*"]
+            protocols             = ["TCP"]
+            destination_ports     = ["22"]
+          }
+        ]
+      },
+      {
+        name       = "Allow-HTTP-Net"
+        priority   = 1001
+        action     = "Allow"
+        rule_group = [
+          {
+            name                  = "HTTP-Rule-Net"
+            description           = "Allow HTTP"
+            source_addresses      = ["*"]
+            destination_addresses = ["*"]
+            protocols             = ["TCP"]
+            destination_ports     = ["80"]
+          }
+        ]
+      }
+    ]
+    nat_rules = [
+      {
+        name       = "DNAT-Rule"
+        priority   = 300
+        action     = "Dnat"
+        rule_group = [
+          {
+            name                  = "DNAT-Rule-Group"
+            description           = "DNAT Rule"
+            source_addresses      = ["*"]
+            destination_addresses = ["hub_fw_pip"]
+            protocols             = ["TCP"]
+            destination_ports     = ["22"]
+            translated_address    = "bastion-vm"
+            translated_port       = "22"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+
+firewalls = {
+  hub_fw = {
+    name                    = "hub_fw"
+    sku_tier                = "Basic"
+    zones                   = ["1", "2", "3"]
+    subnet_name             = "AzureFirewallSubnet"
+    public_ip_name          = "hub_fw_pip"
+    management_subnet_name  = "AzureFirewallManagementSubnet"
+    management_public_ip_name = "hub_fw_mgmt_pip"
+    firewall_policy_name    = "hub_fw_policy"
+  }
+}
+
+aksPublic = {
+  cluster_name        = "aks-prd"
+  location            = "East US 2"
+  dns_prefix          = "aks-prd-dns"
+  subnet_name           = "sub-aks-prd"
+}
+
+
+aks = {
+  cluster_name        = "aks-prd"
+  location            = "East US 2"
+  dns_prefix          = "aks-prd-dns"
+  kubernetes_version  = "1.28.10"
+  node_count          = 2
+  vm_size             = "Standard_DS2_v2"
+  subnet_name           = "sub-aks-prd"
+  dns_service_ip      = "10.0.0.10"
+  private_dns_zone_id = "dns-aks"
+  docker_bridge_cidr  = "172.17.0.1/16"
+  service_cidr        = "10.0.0.0/16"
+  tags = {
+    environment = "production"
+    project     = "mon-projet"
+  }
+}
+
+route = {
+  name                    = "aksToFirwall"
+  address_prefix          = "0.0.0.0/0"  # destionation internet
+  next_hop_in_ip_address  = "hub_fw"   # il doit passer passer par le firewall (ip privé ) pour sortir a internet
+}
+
+
+peerings = {
+  hub-to-prod = {
+    name                         = "hub-to-prod"
+    resource_group_name          = "1-589c63aa-playground-sandbox"
+    virtual_network_name         = "vnet-hub"
+    remote_virtual_network_id    = "vnet-prod"
+    allow_virtual_network_access = true
+    allow_forwarded_traffic      = true
+    allow_gateway_transit        = true
+  },
+  prod-to-hub = {
+    name                         = "prod-to-hub"
+    resource_group_name          = "1-589c63aa-playground-sandbox"
+    virtual_network_name         = "vnet-prod"
+    remote_virtual_network_id    = "vnet-hub"
+    allow_virtual_network_access = true
+    allow_forwarded_traffic      = true
+    allow_gateway_transit        = true
+  }
+}
+
+
+dns_zones = {
+  dns-aks = {
+    name = "private.eastus2.azmk8s.io" # formats: 'private.eastus2.azmk8s.io,privatelink.eastus2.azmk8s.io,[a-zA-Z0-9-]{1,32}.private.eastus2.azmk8s.io,[a-zA-Z0-9-]{1,32}.privatelink.eastus2.azmk8s.io'. Please refer to https://aka.ms/aks/private-cluster for detail.",
+    vnet_links = [
+      {
+        name                 = "hub-vnet-link"
+        virtual_network_id   = "vnet-hub"
+        registration_enabled = true
+      },
+      {
+        name                 = "prod-vnet-link"
+        virtual_network_id   = "vnet-prod"
+        registration_enabled = true
+      }
+    ]
+  }
+}
+
+
+application_gateway = {
+    name       = "appgatwprd"
+    sku_name   = "Standard_v2"
+    sku_tier   = "Standard_v2"
+    capacity   = 2
+    subnet_name = "sub-appgtw-prd"
+
+     # C'est l'interface par laquelle l'Application Gateway reçoit le trafic entrant.
+    frontend_ip_configurations = {  
+      public = {
+        name                 = "public"
+        public_ip_address_name = "prd_appgtw_pip"
+        
+      }
+    }
+    frontend_ports = {
+      "http" = 80
+      "https" = 443
+      "nginx-http" = 8080  # Ajoutez ce nouveau port frontend
+    }
+
+    # Un backend pool est un groupe de serveurs ou de services où l'Application Gateway redirige le trafic. 
+    # Ces serveurs peuvent être des machines virtuelles, des instances de service web ou d'autres services d'Azure.
+    backend_address_pools = {
+       "aks-ingress-pool" = []
+       "nginx-pool" = []  # Ajoutez cette ligne
+    }
+
+    # Ce composant définit comment l'Application Gateway interagit avec les ressources backend. 
+    # Cela inclut la configuration du port backend, du protocole (HTTP/HTTPS), et des cookies.
+    backend_http_settings = {
+      "appgw-backend-http-settings" = {
+        cookie_based_affinity = "Disabled"
+        port                  = 80
+        protocol              = "Http"
+        request_timeout       = 60
+        probe_name            = "aks-ingress-probe"
+      },
+    "nginx-http-setting" = {  # Ajoutez ce bloc
+        cookie_based_affinity = "Disabled"
+        port                  = 80
+        protocol              = "Http"
+        request_timeout       = 30
+      }
+    }
+
+    # probes: Une sonde de santé pour vérifier la disponibilité de l'Ingress Controller.
+    probes = {
+      "aks-ingress-probe" = {
+        interval            = 30
+        path                = "/"
+        protocol            = "Http"
+        timeout             = 30
+        unhealthy_threshold = 3
+        pick_host_name_from_backend_http_settings = true
+      }
+    }
+    # Le listener est responsable d'écouter les requêtes entrantes sur un port spécifique.
+    # Il détermine comment le trafic doit être traité (HTTP ou HTTPS) et quel certificat SSL utiliser pour sécuriser les connexions.
+    http_listeners = {
+      "appgw-http-listener" = {
+        frontend_ip_configuration_name = "public"
+        frontend_port_name             = "http"
+        protocol                       = "Http"
+      },
+      "nginx-http-listener" = {  # Ajoutez ce nouveau listener
+        frontend_ip_configuration_name = "public"
+        frontend_port_name             = "nginx-http"
+        protocol                       = "Http"
+      }
+    }
+    #Les règles de routage de requêtes définissent comment le trafic entrant est dirigé en fonction de certaines conditions 
+    # (par exemple, URL, en-têtes, méthode HTTP). Ces règles lient les listeners aux pools backend.
+    request_routing_rules = {
+      "appgw-routing-rule" = {
+        rule_type                  = "Basic"
+        http_listener_name         = "appgw-http-listener"
+        backend_address_pool_name  = "aks-ingress-pool"
+        backend_http_settings_name = "appgw-backend-http-settings"
+        priority                   = 100
+      },
+     "nginx-routing-rule" = {  # Ajoutez ce bloc
+        rule_type                  = "Basic"
+        http_listener_name         = "appgw-http-listener"
+        backend_address_pool_name  = "nginx-pool"
+        backend_http_settings_name = "nginx-http-setting"
+        priority                   = 101
+      }
+    }
+    tags = {
+      Environment = "Production"
+    }
+  }
